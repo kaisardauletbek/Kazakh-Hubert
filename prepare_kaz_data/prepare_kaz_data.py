@@ -3,6 +3,7 @@ from datasets import Dataset
 import soundfile as sf
 import transformers
 from transformers import Wav2Vec2CTCTokenizer, HubertConfig, HubertForCTC, Wav2Vec2FeatureExtractor, Wav2Vec2Processor
+from transformers import AutoTokenizer, AutoFeatureExtractor, AutoProcessor
 import torchaudio
 import numpy as np
 import torch
@@ -14,7 +15,8 @@ def load_data(root_dir):
     data = {"path": [], "transcript": [], "split": []}
 
     # For each subdirectory
-    for split in ["Train", "Dev", "Test"]:
+    # for split in ["Train", "Dev", "Test"]:
+    for split in ['Dev', 'Test']:
         split_dir = os.path.join(root_dir, split)
         for category in os.listdir(split_dir):
             category_dir = os.path.join(split_dir, category)
@@ -51,16 +53,39 @@ def map_to_array(batch):
         print(f"Error in map_to_array: {e}")
         traceback.print_exc()
 
+def prepare_dataset(batch):
+    batch["input_values"] = processor(batch["speech"], sampling_rate=16000).input_values[0]
+    batch["input_length"] = len(batch["input_values"])
+    with processor.as_target_processor():
+        batch["labels"] = processor(batch["sentence"]).input_ids
+    return batch
+dataset = dataset.map(prepare_dataset, remove_columns=dataset.column_names)
+
 # Load data
 dataset = load_data("/raid/kaisar_dauletbek/datasets/ISSAI_KSC2")
 
 num_processes = 32  # Adjust this based on your system
 
-dataset = dataset.map(tokenize, num_proc=num_processes, cache_file_names=["tokenize_cache.arrow"])
-print('text tokenized')
+# tokenizer = Wav2Vec2CTCTokenizer("/raid/kaisar_dauletbek/Kazakh-Hubert/vocab.json", unk_token="<unk>", pad_token="<pad>", word_delimiter_token=" ")
+model_checkpoint = "facebook/hubert-large-ls960-ft"
+tokenizer = AutoTokenizer("/raid/kaisar_dauletbek/Kazakh-Hubert/vocab.json", unk_token="<unk>", pad_token="<pad>", word_delimiter_token=" ")
+feature_extractor = AutoFeatureExtractor.from_pretrained(model_checkpoint)
+processor = AutoProcessor.from_pretrained(feature_extractor=feature_extractor, tokenizer=tokenizer)
 
-dataset = dataset.map(map_to_array, num_proc=num_processes, cache_file_names=["map_to_array_cache.arrow"])
-print('speech to array done')
+
+try:
+    dataset = dataset.map(tokenize, num_proc=num_processes)
+    print('text tokenized')
+except Exception as e:
+    print(f"Error in tokenize map: {e}")
+    traceback.print_exc()
+
+try:
+    dataset = dataset.map(map_to_array, num_proc=num_processes)
+    print('speech to array done')
+except Exception as e:
+    print(f"Error in map_to_array map: {e}")
+    traceback.print_exc()
 
 # save the dataset
 dataset.save_to_disk("/raid/kaisar_dauletbek/Kazakh-Hubert/dataset")
