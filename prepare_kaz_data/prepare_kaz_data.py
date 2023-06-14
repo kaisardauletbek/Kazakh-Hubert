@@ -7,7 +7,6 @@ import torchaudio
 import numpy as np
 import torch
 import traceback
-from transformers import AutoProcessor
 import multiprocessing
 import json
 
@@ -36,28 +35,32 @@ def load_data(root_dir):
     return Dataset.from_dict(data)
 
 def tokenize(batch):
-    # Tokenize the transcripts and align the tokens with the original characters
-    # with tokenizer.as_target_processor():
-    tokens = tokenizer(batch["transcript"], padding="longest", truncation=True, max_length=512)
-    return tokens
+    try:
+        tokens = tokenizer(batch["transcript"], padding="longest", truncation=True, max_length=512)
+        return tokens
+    except Exception as e:
+        print(f"Error in tokenize: {e}")
+        traceback.print_exc()
 
 def map_to_array(batch):
-    speech, _ = sf.read(batch["path"])
-    batch["speech"] = speech
-    return batch
-
-
-
-# Initialize a new tokenizer
-tokenizer = Wav2Vec2CTCTokenizer("/raid/kaisar_dauletbek/Kazakh-Hubert/vocab.json", unk_token='<unk>', pad_token='<pad>', word_delimiter_token=" ")
+    try:
+        speech, _ = sf.read(batch["path"])
+        batch["speech"] = speech
+        return batch
+    except Exception as e:
+        print(f"Error in map_to_array: {e}")
+        traceback.print_exc()
 
 # Load data
 dataset = load_data("/raid/kaisar_dauletbek/datasets/ISSAI_KSC2")
 
-max_cpu = multiprocessing.cpu_count()
-half_cpu = 64
-dataset = dataset.map(tokenize, num_proc=half_cpu)
-dataset = dataset.map(map_to_array, num_proc=half_cpu)
+num_processes = 32  # Adjust this based on your system
+
+dataset = dataset.map(tokenize, num_proc=num_processes, cache_file_names=["tokenize_cache.arrow"])
+print('text tokenized')
+
+dataset = dataset.map(map_to_array, num_proc=num_processes, cache_file_names=["map_to_array_cache.arrow"])
+print('speech to array done')
 
 # save the dataset
 dataset.save_to_disk("/raid/kaisar_dauletbek/Kazakh-Hubert/dataset")
