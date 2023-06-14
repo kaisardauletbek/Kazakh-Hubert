@@ -3,11 +3,9 @@ import torchaudio
 import transformers
 import soundfile as sf
 import numpy as np
-from transformers import Wav2Vec2CTCTokenizer, HubertConfig, HubertForCTC, Wav2Vec2FeatureExtractor, Wav2Vec2Processor#, DataCollatorCTC
 from torch.utils.data import DataLoader
-import datasets
-from datasets import Dataset, load_dataset, load_from_disk
-from transformers import TrainingArguments, Trainer
+from transformers import Wav2Vec2CTCTokenizer, HubertConfig, HubertForCTC, Wav2Vec2FeatureExtractor, Wav2Vec2Processor, TrainingArguments, Trainer
+from datasets import Dataset, load_from_disk, load_metric
 from torch.nn.utils.rnn import pad_sequence
 
 # Initialize a new tokenizer
@@ -32,16 +30,16 @@ processor = Wav2Vec2Processor(feature_extractor=feature_extractor, tokenizer=tok
 
 def prepare_dataset(batch):
     # Process the speech data
-    print('HUI SPEECH')
-    input_values = processor(batch["speech"], sampling_rate=16_000, return_tensors="pt").input_values
-    print('HUI SPEECH DONE')
+    # print('SPEECH')
+    input_values = processor(batch["speech"], sampling_rate=16_000, return_tensors="pt").input_values[0]
+    # print('SPEECH DONE')
 
     if "transcript" in batch:
         # Process the transcripts
         with processor.as_target_processor():
-            print('HUI TRANSCRIPT')
-            labels = processor(batch["transcript"], return_tensors="pt").input_ids
-            print('HUI TRANSCRIPT DONE')
+            # print('TRANSCRIPT')
+            labels = processor(batch["transcript"], return_tensors="pt").input_ids[0]
+            # print('TRANSCRIPT DONE')
 
     # Combine the processed data into a single batch
     batch = {"input_values": input_values, "labels": labels}
@@ -60,7 +58,7 @@ def data_collator(features):
     return {"input_values": input_values, "labels": labels}
 
 
-num_proc = 32
+num_proc = 1
 dataset = load_from_disk('/raid/kaisar_dauletbek/Kazakh-Hubert/dataset')
 dataset = dataset.map(prepare_dataset, remove_columns=dataset.column_names, num_proc=num_proc)
 dataloader = DataLoader(dataset, shuffle=True, batch_size=16)
