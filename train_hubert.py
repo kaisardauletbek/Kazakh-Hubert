@@ -7,6 +7,7 @@ from torch.utils.data import DataLoader
 from transformers import Wav2Vec2CTCTokenizer, HubertConfig, HubertForCTC, Wav2Vec2FeatureExtractor, Wav2Vec2Processor, TrainingArguments, Trainer
 from datasets import Dataset, load_from_disk, load_metric
 from torch.nn.utils.rnn import pad_sequence
+import multiprocessing
 
 # Initialize a new tokenizer
 tokenizer = Wav2Vec2CTCTokenizer("/raid/kaisar_dauletbek/Kazakh-Hubert/vocab.json", unk_token="<unk>", pad_token="<pad>", word_delimiter_token=" ")
@@ -28,43 +29,34 @@ feature_extractor = Wav2Vec2FeatureExtractor()
 # Combine the tokenizer and feature extractor into a processor
 processor = Wav2Vec2Processor(feature_extractor=feature_extractor, tokenizer=tokenizer)
 
-def prepare_dataset(batch):
-    # Process the speech data
-    # print('SPEECH')
-    input_values = processor(batch["speech"], sampling_rate=16_000, return_tensors="pt").input_values[0]
-    # print('SPEECH DONE')
 
-    if "transcript" in batch:
-        # Process the transcripts
-        with processor.as_target_processor():
-            # print('TRANSCRIPT')
-            labels = processor(batch["transcript"], return_tensors="pt").input_ids[0]
-            # print('TRANSCRIPT DONE')
+# def data_collator(features):
+#     # Pad the input values
+#     input_values = [feature["input_values"] for feature in features]
+#     input_values = pad_sequence(torch.tensor(input_values), batch_first=True)
 
-    # Combine the processed data into a single batch
-    batch = {"input_values": input_values, "labels": labels}
-    return batch
+#     # Pad the labels
+#     labels = [feature.get("labels", torch.tensor([-100])) for feature in features]
+#     labels = pad_sequence(torch.tensor(labels), batch_first=True)
+
+#     # Return the padded batch
+#     return {"input_values": input_values, "labels": labels}
 
 def data_collator(features):
     # Pad the input values
     input_values = [feature["input_values"] for feature in features]
-    input_values = pad_sequence(input_values, batch_first=True)
+    input_values = pad_sequence([torch.cat(input_value, dim=0) for input_value in input_values], batch_first=True)
 
     # Pad the labels
     labels = [feature.get("labels", torch.tensor([-100])) for feature in features]
-    labels = pad_sequence(labels, batch_first=True)
+    labels = pad_sequence([torch.cat(label, dim=0) for label in labels], batch_first=True)
 
     # Return the padded batch
     return {"input_values": input_values, "labels": labels}
 
 
-num_proc = 1
-dataset = load_from_disk('/raid/kaisar_dauletbek/Kazakh-Hubert/dataset')
-dataset = dataset.map(prepare_dataset, remove_columns=dataset.column_names, num_proc=num_proc)
-dataloader = DataLoader(dataset, shuffle=True, batch_size=16)
-
-# Define the data collator
-# data_collator = DataCollatorCTC(processor, padding=True)
+data_collator = data_collator
+wer_metric = load_metric("wer")
 
 # Define the compute metrics function
 def compute_metrics(pred):
@@ -81,6 +73,11 @@ def compute_metrics(pred):
 
     return {"wer": wer}
 
+# dataloader = torch.load("/raid/kaisar_dauletbek/Kazakh-Hubert/dataloader.pt")
+dataset = load_from_disk('/raid/kaisar_dauletbek/Kazakh-Hubert/dataset_ready')
+
+# Define the data collator
+# data_collator = DataCollatorCTC(processor, padding=True)
 
 training_args = TrainingArguments(
     output_dir="/raid/kaisar_dauletbek/Kazakh-Hubert",
@@ -106,5 +103,6 @@ trainer = Trainer(
     train_dataset=dataset,
 )
 
+print("Start training")
 trainer.train()
 
